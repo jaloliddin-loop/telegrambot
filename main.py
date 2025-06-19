@@ -1,100 +1,96 @@
-import os
-import random
-import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import requests
 
-TOKEN = "8100312871:AAH12BXA8pgZWzdTiuxtMOL52a6YzZ_bQ40"
-USER_DATA = {}
-FFMPEG_PATH = r"C:\insall\ffmpeg-7.1.1-essentials_build\bin"
+TOKEN = '7551358810:AAGa61l5J_k-MPzffFmxh6EvsIhLrR8WCjM'  # 👉 Bu yerga o‘z tokeningni yoz
 
-# 🎬 Media yuklash funksiyasi
-async def download_media(url, mode, user_id):
-    ext = 'mp3' if mode == 'audio' else 'mp4'
-    filename = f"{mode}_{user_id}_{random.randint(1000,9999)}.{ext}"
+# Viloyatlar (har biri ekranda gorizontal bo‘lib chiqadi)
+regions = ["Toshkent", "Andijon", "Namangan", "Farg‘ona", "Buxoro", "Jizzax", "Xorazm", "Surxondaryo", "Qashqadaryo", "Samarqand", "Sirdaryo", "Navoiy", "Qoraqalpog‘iston"]
 
-    ydl_opts = {
-        'format': 'bestaudio/best' if mode == 'audio' else f'bestvideo[height<={mode}]+bestaudio/best',
-        'outtmpl': filename,
-        'merge_output_format': 'mp4' if mode != 'audio' else None,
-        'ffmpeg_location': FFMPEG_PATH,
-        'quiet': True,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }] if mode == 'audio' else []
-    }
+# Banklar (gorizontal chiqadi)
+banks = ["Hamkorbank", "Agrobank", "Ipoteka Bank", "NBU", "Xalq Bank"]
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+# ✅ cbu.uz API orqali real USD kursini olish
+def get_usd_from_cbu():
+    try:
+        url = "https://cbu.uz/uz/arkhiv-kursov-valyut/json/"
+        res = requests.get(url)
+        data = res.json()
+        for item in data:
+            if item['Ccy'] == "USD":
+                return {
+                    'buy': item['Rate'],
+                    'sell': str(round(float(item['Rate']) + 100, 2))
+                }
+        return {'error': 'USD topilmadi'}
+    except Exception as e:
+        return {'error': str(e)}
 
-    return filename
-
-# ▶ /start komandasi
+# /start komandasi
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎬 YouTube yoki Instagram link yuboring.\n⬇ Video yoki musiqa yuklash uchun tugmani tanlang.")
+    # 📌 Viloyatlarni gorizontal formatda chiqarish (2 tadan)
+    buttons = []
+    row = []
+    for i, region in enumerate(regions, start=1):
+        row.append(InlineKeyboardButton(region, callback_data=region))
+        if i % 2 == 0:
+            buttons.append(row)
+            row = []
+    if row:  # oxirgi qator qolsa
+        buttons.append(row)
 
-# 🌐 Link yuborilganda
-async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text.strip()
-    user_id = update.message.from_user.id
+    await update.message.reply_text("🗺 Viloyatni tanlang:", reply_markup=InlineKeyboardMarkup(buttons))
 
-    if any(domain in url for domain in ["youtube.com", "youtu.be", "instagram.com"]):
-        USER_DATA[user_id] = url
-        buttons = [
-            [InlineKeyboardButton("🎞 360p", callback_data="video_360"),
-             InlineKeyboardButton("🎥 720p", callback_data="video_720"),
-             InlineKeyboardButton("🎬 1080p", callback_data="video_1080")],
-            [InlineKeyboardButton("🎵 Musiqa olish", callback_data="video_audio")]
-        ]
-        markup = InlineKeyboardMarkup(buttons)
-        await update.message.reply_text("⬇ Formatni tanlang:", reply_markup=markup)
-    else:
-        await update.message.reply_text("❌ Iltimos, YouTube yoki Instagram link yuboring.")
-
-# ⏬ Tugma bosilganda
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Viloyat tanlanganda
+async def handle_region(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    data = query.data
-    action = data.split("_")[1]
-    url = USER_DATA.get(user_id)
+    region = query.data
+    context.user_data['region'] = region
 
-    if not url:
-        await query.message.reply_text("⚠ Link topilmadi. Qaytadan yuboring.")
+    # Banklar tugmalari ham gorizontal (2 tadan)
+    buttons = []
+    row = []
+    for i, bank in enumerate(banks, start=1):
+        row.append(InlineKeyboardButton(bank, callback_data=f"bank|{bank}"))
+        if i % 2 == 0:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
+    await query.edit_message_text(
+        text=f"✅ {region} viloyati tanlandi.\n🏦 Endi bankni tanlang:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+# Bank tanlanganda
+async def handle_bank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    _, bank = query.data.split("|")
+    region = context.user_data.get("region", "Viloyat tanlanmagan")
+    kurs = get_usd_from_cbu()
+
+    if 'error' in kurs:
+        await query.edit_message_text(f"❌ Xatolik: {kurs['error']}")
         return
 
-    if action == "audio":
-        await query.edit_message_text("🎧 Musiqa yuklanmoqda...")
-    else:
-        await query.edit_message_text(f"📥 {action}p video yuklanmoqda...")
+    await query.edit_message_text(
+        f"📍 *{region}* - *{bank}*\n"
+        f"💵 *Sotib olish*: {kurs['buy']} so‘m\n"
+        f"💸 *Sotish*: {kurs['sell']} so‘m\n"
+        f"🌐 *Manba*: [cbu.uz](https://cbu.uz)",
+        parse_mode="Markdown"
+    )
 
-    try:
-        filename = await download_media(url, action, user_id)
-
-        if action == "audio":
-            with open(filename, "rb") as f:
-                await query.message.reply_audio(audio=f, title="🎵 Musiqa")
-        else:
-            with open(filename, "rb") as f:
-                await query.message.reply_video(video=f, caption=f"🎬 {action}p video", reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎵 Musiqani yuklash", callback_data="video_audio")]
-                ]))
-
-        os.remove(filename)
-
-    except Exception as e:
-        await query.message.reply_text(f"❌ Xatolik: {e}")
-
-# 🚀 Botni ishga tushurish
+# Botni ishga tushirish
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
-app.add_handler(CallbackQueryHandler(button_callback))
+app.add_handler(CallbackQueryHandler(handle_bank, pattern="^bank\|"))
+app.add_handler(CallbackQueryHandler(handle_region))
 
-print("✅ Mukammal bot ishga tushdi!")
-app.run_polling()
+if __name__ == '__main__':
+    print("✅ Bot ishga tushdi!")
+    app.run_polling()
