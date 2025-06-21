@@ -6,7 +6,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 )
 
-TOKEN = "8025839505:AAFloxJmllJI2XdWY5AMXJ8VgWC_iHhv-24"
+TOKEN = "8127841687:AAGycmvk3t9PGESZ1CAjfT0uTqocxE_AUBk"
 USER_DATA = {}
 FFMPEG_PATH = r"C:\insall\ffmpeg-7.1.1-essentials_build\bin"
 
@@ -33,9 +33,15 @@ async def download_media(url, mode, user_id):
 
     return filename
 
+# 🎧 Videodan musiqa ajratish funksiyasi
+async def extract_audio_from_video(video_file, user_id):
+    audio_file = f"extracted_{user_id}_{random.randint(1000,9999)}.mp3"
+    os.system(f'{FFMPEG_PATH}\\ffmpeg -i "{video_file}" -q:a 0 -map a "{audio_file}" -y')
+    return audio_file
+
 # ▶ /start komandasi
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎬 YouTube yoki Instagram link yuboring.\n⬇ Video yoki musiqa yuklash uchun tugmani tanlang.")
+    await update.message.reply_text("🎬Assalomu alaykum YouTube yoki Instagram link yuboring.\n⬇ Video yoki musiqa yuklash uchun tugmani tanlang.")
 
 # 🌐 Link yuborilganda
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -70,19 +76,27 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "audio":
         await query.edit_message_text("🎧 Musiqa yuklanmoqda...")
+    elif action == "extract":
+        await query.edit_message_text("🔄 Videodan musiqa ajratilmoqda...")
     else:
-        await query.edit_message_text(f"📥 {action}p video yuklanmoqda...")
+        await query.edit_message_text(f"📥 {action}p video yuklanmoqda biroz kuting...")
 
     try:
-        filename = await download_media(url, action, user_id)
+        filename = await download_media(url, "audio" if action == "extract" else action, user_id)
 
         if action == "audio":
             with open(filename, "rb") as f:
                 await query.message.reply_audio(audio=f, title="🎵 Musiqa")
+        elif action == "extract":
+            audio_file = await extract_audio_from_video(filename, user_id)
+            with open(audio_file, "rb") as f:
+                await query.message.reply_audio(audio=f, title="🎧 Videodagi musiqasi")
+            os.remove(audio_file)
         else:
             with open(filename, "rb") as f:
                 await query.message.reply_video(video=f, caption=f"🎬 {action}p video", reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎵 Musiqani yuklash", callback_data="video_audio")]
+                    [InlineKeyboardButton("🎵 Musiqani yuklash", callback_data="video_audio")],
+                    [InlineKeyboardButton("🎧 Videodagi musiqani ajratish", callback_data="video_extract")]
                 ]))
 
         os.remove(filename)
